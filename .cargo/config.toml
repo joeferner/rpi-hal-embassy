@@ -21,3 +21,56 @@ rustflags = ["-C", "link-arg=-Trpi-link.x"]
 [target.aarch64-unknown-none-softfloat]
 rustflags = ["-C", "link-arg=-Trpi-link.x"]
 
+# TEMPORARY: resolve `rpi-hal` from a sibling checkout instead of crates.io.
+#
+# The `usb` module here needs `rpi-hal` APIs that are written but not yet
+# released -- `usb::dwc2::Channel` and its `async` twins, and
+# `usb::dwc2::on_irq`. `Cargo.toml` still names the crates.io version, which is
+# what a consumer of this crate gets; this only changes where *this*
+# repository's own builds resolve it from, and is never published, a
+# `.cargo/config.toml` being build configuration rather than package metadata.
+#
+# Drop this once that `rpi-hal` release is out and `Cargo.toml`'s version
+# requirement names it. Until then a green build here does not prove the
+# published dependency is sufficient.
+[patch.crates-io]
+rpi-hal = { path = "../rpi-hal" }
+
+# TEMPORARY: build the USB host stack from a local `embassy` checkout.
+#
+# `embassy-usb-host` 0.1.0's hub driver matches a hub interface on
+# `bInterfaceProtocol == 0x00`, which is a *full-speed* hub (USB 2.0 §11.23.1).
+# Every high-speed hub reports 0x01 or 0x02, so the released crate cannot
+# register the Pi's on-board LAN9514 -- and on this board every device is
+# behind it. The branch below carries the one-line fix, to be sent upstream.
+#
+# All seven crates have to move together, not just the one being fixed.
+# `embassy-usb-host` declares its siblings by path, so patching it alone would
+# resolve those to the checkout while this crate's own dependencies still came
+# from crates.io -- two copies of `embassy-usb-driver` (whose traits then no
+# longer match across the boundary) and, worse, two of `embassy-time`, whose
+# driver is a link-time singleton. The versions in the checkout are identical
+# to the published ones, so this changes source, not semver.
+#
+# Drop the whole block once the fix is released.
+embassy-usb-host = { path = "../embassy/embassy-usb-host" }
+embassy-usb = { path = "../embassy/embassy-usb" }
+embassy-usb-driver = { path = "../embassy/embassy-usb-driver" }
+embassy-sync = { path = "../embassy/embassy-sync" }
+embassy-time = { path = "../embassy/embassy-time" }
+embassy-time-driver = { path = "../embassy/embassy-time-driver" }
+embassy-time-queue-utils = { path = "../embassy/embassy-time-queue-utils" }
+# Not optional tidying. This crate is the *integrated* timer queue, whose
+# whole design is that a waiting task's queue item lives in the task header
+# itself -- so `embassy-executor` and `embassy-time-queue-utils` must resolve
+# to one copy of it or a task that awaits a deadline is enqueued in a
+# structure the executor never looks at. Left unpatched it splits (crates.io
+# 0.1.0 under the executor, checkout 0.1.1 under the queue), which `cargo tree
+# -d` shows and nothing else would until timers stopped firing.
+embassy-executor-timer-queue = { path = "../embassy/embassy-executor-timer-queue" }
+# Unified for the ordinary reason: `embassy-usb` reaches it through
+# `embassy-net-driver-channel` by path, while `rpi-hal` and `embassy-net` take
+# it from crates.io. Two copies means two `Driver` traits. Harmless today --
+# nothing here uses `embassy-usb`'s Ethernet classes -- but only by accident.
+embassy-net-driver = { path = "../embassy/embassy-net-driver" }
+

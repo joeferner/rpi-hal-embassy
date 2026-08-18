@@ -26,6 +26,52 @@ two tasks and drives both from `embassy-time` deadlines.
 which is what lets a single executor implementation serve both
 architectures.
 
+## Features
+
+- **`usb-host`** (off by default): adds the [`usb`](src/usb.rs) module —
+  `Dwc2HostController`, `Dwc2Allocator` and `Dwc2Pipe`, implementing
+  `embassy-usb-driver`'s host traits over `rpi-hal`'s DWC2 host
+  channels, so [`embassy-usb-host`](https://docs.rs/embassy-usb-host)'s
+  enumeration and class drivers run on a Pi. One host channel per pipe,
+  taken from the controller's pool; running out is an error rather than
+  a queue, so an application that wants more concurrent endpoints than
+  the eight this SoC has finds out.
+
+  This is the one adapter here that is *not* a time driver, and it needs
+  saying why it isn't in the HAL. `embassy-usb-driver` is trait
+  definitions only, like `embassy-net-driver`, whose adapter does live
+  there. What differs is that the `UsbPipe` contract is written in
+  wall-clock terms — how long to keep retrying a NAK'd control transfer,
+  how often to re-poll an interrupt endpoint — while `rpi-hal`'s USB
+  layer deliberately has no clock, only bus time (channel-halt and
+  start-of-frame interrupts). Supplying the missing clock means
+  depending on `embassy-time`, and that is a link-time singleton — the
+  thing this crate exists to keep out of the HAL.
+
+  Off by default because the host stack is a large dependency graph that
+  an application wanting only the time driver and executor shouldn't
+  pay for. Enabling it also turns on `rpi-hal`'s `async` feature, which
+  supplies the interrupt-driven transfers underneath.
+
+  The application must route the USB interrupt: `Lic::enable_usb_irq()`,
+  and `rpi_hal::usb::dwc2::on_irq()` from its own `__irq_handler`.
+  Nothing completes without it, and since `rpi-hal`'s handler is a weak
+  no-op, omitting it looks like a hang rather than an error.
+
+  **`embassy-usb-host` 0.1.0 cannot yet drive a Pi**, and the adapter
+  here cannot paper over it: the released hub driver matches a hub
+  interface on `bInterfaceProtocol == 0x00`, which is a *full-speed* hub
+  (USB 2.0 §11.23.1), and every high-speed hub reports `0x01` or `0x02`.
+  On this hardware everything is behind the on-board LAN9514, so nothing
+  enumerates at all. A second bug routes any high-speed device behind a
+  hub as a full-speed split transaction, because `enumerate_port` uses
+  the port speed sampled *before* the reset — and high speed is only
+  established by the reset handshake.
+  [`.cargo/config.toml`](.cargo/config.toml) patches both, plus some
+  descriptor-read robustness, from a local checkout while the fixes go
+  upstream. The adapter itself is unaffected; this is the stack above
+  it.
+
 ## Why this isn't a feature of `rpi-hal`
 
 An `embassy-time` driver is installed by *linkage*, not by types.
