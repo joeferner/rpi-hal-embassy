@@ -166,6 +166,10 @@ picoserve = { version = "0.19.0", default-features = false, features = [
 name = "embassy_usb_keyboard"
 required-features = ["usb-host"]
 
+[[example]]
+name = "embassy_usb_keyboard_net"
+required-features = ["usb-host"]
+
 [profile.dev]
 panic = "abort"
 
