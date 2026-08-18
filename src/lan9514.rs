@@ -192,11 +192,16 @@ async fn receive_forever(
         // Claimed before the transfer is issued, so backpressure is taken
         // by leaving the frame in the chip's FIFO rather than by fetching
         // one there is nowhere to put.
-        let buf = runner.rx_buf().await;
+        //
+        // The slot is the claim: `rx_done` consumes it and publishes the
+        // frame, and dropping it without that — which is what a failed
+        // transfer below does — advances nothing, so the next iteration is
+        // handed the same buffer back.
+        let mut slot = runner.rx_buf().await;
         if let Ok(Some(frame)) = rx.receive_frame_async(channel, timer).await {
-            let len = frame.len().min(buf.len());
-            buf[..len].copy_from_slice(&frame[..len]);
-            runner.rx_done(len);
+            let len = frame.len().min(slot.len());
+            slot[..len].copy_from_slice(&frame[..len]);
+            slot.rx_done(len);
         }
     }
 }
@@ -213,8 +218,12 @@ async fn transmit_forever(
     timer: &Timer,
 ) -> ! {
     loop {
-        let buf = runner.tx_buf().await;
-        let _ = tx.send_frame_async(channel, timer, buf).await;
-        runner.tx_done();
+        // The slot derefs to the frame itself, already cut to the length
+        // the stack wrote, and `tx_done` consumes it — so the buffer is
+        // released on the failure path too, by the same line rather than
+        // by remembering to.
+        let slot = runner.tx_buf().await;
+        let _ = tx.send_frame_async(channel, timer, &slot).await;
+        slot.tx_done();
     }
 }

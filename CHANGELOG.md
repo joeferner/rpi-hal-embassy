@@ -38,6 +38,49 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   The runner takes two USB host channels rather than one, one per
   direction, so a transmit never has to cancel a parked receive.
 
+- **A USB host controller for `embassy-usb-host`** (`usb-host` feature,
+  off by default): `usb::Dwc2HostController`, `usb::Dwc2Allocator` and
+  `usb::Dwc2Pipe`, implementing `embassy-usb-driver`'s host traits over
+  `rpi-hal`'s DWC2 host channels. With it, `embassy-usb-host`'s
+  enumeration and class drivers run on a Pi: one host channel per pipe,
+  drawn from the controller's pool and reported as
+  `HostError::OutOfPipes` when exhausted rather than queued.
+
+  This adapter sits here rather than in the HAL beside the
+  `embassy-net-driver` one — even though `embassy-usb-driver` is
+  likewise trait definitions only — because the `UsbPipe` contract is
+  written in wall-clock terms (a control transfer's NAK-retry budget, an
+  interrupt endpoint's `bInterval`) and `rpi-hal`'s USB layer
+  deliberately has only bus time. Supplying the clock means depending on
+  `embassy-time`, a link-time singleton, which is the thing this crate
+  exists to keep out of the HAL.
+
+  Known limits, all documented on the module: a control data stage is
+  capped at 256 bytes (the HAL's per-channel DMA buffer), a bulk buffer
+  must be cache-line aligned and a whole number of cache lines long,
+  isochronous transfers are unimplemented, and overcurrent is never
+  reported.
+- `examples/embassy_usb_keyboard.rs`, reading a USB keyboard through the
+  full `embassy-usb-host` stack — one task servicing the on-board hub's
+  status-change endpoint, another polling the keyboard, each on its own
+  host channel.
+
+  Running it needs `embassy-usb-host` fixes that are not released yet,
+  patched in from a local checkout by `.cargo/config.toml`. The released
+  0.1.0 registers no high-speed hub at all (its hub driver matches only
+  `bInterfaceProtocol == 0x00`, a full-speed hub) and misroutes every
+  high-speed device behind a hub as a full-speed split. `README.md` has
+  the detail. None of it is in this crate's own code.
+
+  That checkout now reaches the network side too, which is worth knowing
+  before a release rather than after: patching `embassy-sync` for the USB
+  stack leaves the released `embassy-net-driver-channel` unable to compile
+  against it, so the channel crate comes from the checkout as well and
+  `lan9514` is written against its slot-based runner API (`RxSlot`/
+  `TxSlot`) rather than the released `rx_done`/`tx_done` pair. Both
+  requirements in `Cargo.toml` move to real versions when the upstream
+  releases land, and nothing here can be published before then.
+
 ### Changed
 
 - **Requires `rpi-hal` 0.3.0**, up from 0.1.0, which matters to an

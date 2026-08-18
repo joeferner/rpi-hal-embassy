@@ -79,6 +79,28 @@ embassy-net-driver = { version = "0.2.0", optional = true }
 embassy-net-driver-channel = { version = "0.4.0", optional = true }
 embassy-futures = { version = "0.1.2", optional = true }
 
+# The `usb-host` feature's dependencies, all optional (see [features]).
+#
+# `embassy-usb-driver` is the trait side -- `UsbHostController`,
+# `UsbHostAllocator`, `UsbPipe` -- and is what `src/usb.rs` implements over
+# rpi-hal's DWC2 channels. Definitions only, like `embassy-net-driver`, so on
+# its own it would belong in rpi-hal beside that one. What keeps it here is
+# the crate below it.
+embassy-usb-driver = { version = "0.2.2", optional = true }
+# `embassy-time`, needed by the pipe implementation and *not* merely by the
+# examples: the trait contract is written in time. A control pipe retries a
+# NAK until `TimeoutConfig` expires, an interrupt pipe re-polls once per
+# `bInterval` in milliseconds, and neither is expressible with the bus-clocked
+# waits rpi-hal offers. That dependency -- on a crate whose driver is a
+# link-time singleton -- is why this adapter lives beside the time driver
+# rather than in the HAL.
+embassy-time = { version = "0.5.1", default-features = false, optional = true }
+# Pulled in so an application gets the host stack (enumeration, and the `hub`
+# and `kbd` class drivers the keyboard examples use) by enabling one feature
+# here, rather than having to match versions with the trait crate by hand.
+# Nothing in this crate's own source depends on it.
+embassy-usb-host = { version = "0.1.0", optional = true }
+
 [dev-dependencies]
 # The examples are whole programs, so unlike the library they do need
 # rpi-hal's boot sequence. Cargo unions these features with the
@@ -91,10 +113,12 @@ embassy-futures = { version = "0.1.2", optional = true }
 # target") if a normal and a dev edge disagree.
 rpi-hal = { version = "0.3.0", features = ["rt", "async"] }
 # The application-facing time API (`Instant`, `Duration`, `Timer::after`),
-# used by the examples to exercise the driver in this crate. A library
-# dependency here would be wrong: an application picks its own
-# `embassy-time` version, and this crate only has to satisfy the driver
-# contract that `embassy-time-driver` defines.
+# used by the examples to exercise the driver in this crate. Listed here as
+# well as under the optional `usb-host` edge above because most examples use
+# it without needing that feature: for the *time driver*, a library dependency
+# would be wrong -- an application picks its own `embassy-time` version, and
+# this crate only has to satisfy the contract `embassy-time-driver` defines.
+# The USB host adapter is the exception, and says why at its own edge.
 embassy-time = { version = "0.5.1", default-features = false }
 embedded-hal = { version = "1.0.0", default-features = false }
 # The async traits whose implementations live in rpi-hal. A trait has to
@@ -171,6 +195,23 @@ embassy-net-driver = [
     "rpi-hal/async",
 ]
 
+# An `embassy-usb-driver` host controller over rpi-hal's DWC2 channels, so
+# `embassy-usb-host`'s enumeration and class drivers run on a Pi. Off by
+# default: it is a large dependency graph (the host stack pulls in
+# `embassy-usb` and `zerocopy` among others) that an application only wanting
+# the time driver and executor should not pay for.
+#
+# `rpi-hal/async` is what supplies the interrupt-driven transfer primitives
+# underneath; requesting it here means an application enables one feature, not
+# two, and cannot end up with this module compiled against a HAL that has no
+# async USB.
+usb-host = [
+    "dep:embassy-usb-driver",
+    "dep:embassy-usb-host",
+    "dep:embassy-time",
+    "rpi-hal/async",
+]
+
 # Auto-discovery covers every other example. These need explicit entries
 # so they can declare `required-features`, which keeps a plain
 # `cargo build --examples` from failing on them and lets
@@ -187,6 +228,14 @@ required-features = ["embassy-net-driver"]
 [[example]]
 name = "embassy_picoserve"
 required-features = ["embassy-net-driver"]
+
+[[example]]
+name = "embassy_usb_keyboard"
+required-features = ["usb-host"]
+
+[[example]]
+name = "embassy_usb_keyboard_net"
+required-features = ["usb-host"]
 
 [profile.dev]
 panic = "abort"
