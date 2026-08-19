@@ -35,7 +35,7 @@ use embassy_net::{Config, StackResources};
 use embassy_time::{Duration, Ticker};
 use rpi_hal::mailbox::Mailbox;
 use rpi_hal::rng::Rng;
-use rpi_hal::usb::dwc2::Dwc2Host;
+use rpi_hal::usb::dwc2::{Channel, Dwc2Host};
 use rpi_hal::usb::lan9514::{self, Lan9514, Lan9514Driver};
 use rpi_hal::{halt, irq, lic::Lic, pac, timer::Timer, uart::Uart, usb};
 use rpi_hal_embassy::{Executor, time_driver};
@@ -71,7 +71,7 @@ unsafe fn make_static<T>(t: &mut T) -> &'static mut T {
 }
 
 #[embassy_executor::task]
-async fn net_task(mut runner: embassy_net::Runner<'static, Lan9514Driver<'static>>) -> ! {
+async fn net_task(mut runner: embassy_net::Runner<'static, Lan9514Driver<'static, 'static>>) -> ! {
     runner.run().await
 }
 
@@ -165,7 +165,7 @@ pub extern "C" fn kmain() -> ! {
         mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]
     );
 
-    let mut dwc2 = Dwc2Host::init(
+    let dwc2 = Dwc2Host::init(
         peripherals.USB_OTG_GLOBAL,
         peripherals.USB_OTG_HOST,
         peripherals.USB_OTG_PWRCLK,
@@ -196,12 +196,18 @@ pub extern "C" fn kmain() -> ! {
     let _ = writeln!(uart, "hub detected after {waited_ms}ms");
 
     let mut uart = Some(uart);
-    let result = usb::enumerate(&mut dwc2, &timer, |dwc2, timer, device| {
-        match Lan9514::from_device(dwc2, timer, device) {
+    let result = usb::enumerate(&dwc2, &timer, |channel, timer, device| {
+        match Lan9514::from_device(channel, timer, device) {
             Ok(Some(lan9514)) => {
+                // A channel of its own, not the one enumeration is using:
+                // that one is handed back when this callback returns,
+                // while the driver below keeps moving frames forever.
+                let net_channel = dwc2
+                    .alloc_channel()
+                    .expect("a free host channel for the network stack");
                 // Diverges, so enumeration never resumes — and so the
                 // borrows widened inside really do last forever.
-                run(uart.take().unwrap(), dwc2, timer, lan9514, mac)
+                run(uart.take().unwrap(), net_channel, timer, lan9514, mac)
             }
             _ => core::ops::ControlFlow::Continue(()),
         }
@@ -236,12 +242,12 @@ pub extern "C" fn __irq_handler() {
 /// Brings the chip up and hands it to `embassy-net`. Never returns.
 fn run(
     mut uart: Uart,
-    dwc2: &mut Dwc2Host,
+    mut channel: Channel,
     timer: &Timer,
     mut lan9514: Lan9514,
     mac: [u8; 6],
 ) -> ! {
-    if let Err(e) = lan9514.start(dwc2, timer, mac) {
+    if let Err(e) = lan9514.start(&mut channel, timer, mac) {
         let _ = writeln!(uart, "LAN9514 start failed: {e:?}");
         halt();
     }
@@ -257,10 +263,10 @@ fn run(
     irq::enable_irq();
 
     // Everything below outlives `run`, which never returns.
-    let dwc2: &'static mut Dwc2Host = unsafe { make_static(dwc2) };
+    let channel: Channel<'static> = unsafe { core::mem::transmute(channel) };
     let timer: &'static Timer = unsafe { &*(timer as *const Timer) };
 
-    let driver = Lan9514Driver::new(lan9514, dwc2, timer, mac);
+    let driver = Lan9514Driver::new(lan9514, channel, timer, mac);
 
     // A random seed keeps TCP initial sequence numbers and the DHCP
     // transaction ID from repeating across boots. The hardware RNG is
