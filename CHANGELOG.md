@@ -13,6 +13,30 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   The feature adds no code: it selects `rpi-hal`'s cross-core
   `critical-section` implementation, which the driver's shared timer
   queue needs once a second core can reach it.
+- An `embassy-net-driver` feature and a `lan9514` module: the
+  `embassy-net` adapter over `rpi-hal`'s LAN9514 USB-Ethernet driver,
+  moved here from `rpi-hal` (where it was that crate's
+  `embassy-net-driver` feature) and rebuilt on
+  `embassy-net-driver-channel`.
+
+  `lan9514::new` returns a `Lan9514Driver` for `embassy_net::new` and a
+  `Lan9514Runner` the application spawns as a task. The split is what
+  makes an async driver possible at all: `embassy_net_driver::Driver`'s
+  `receive`/`transmit` are synchronous, so a `Driver` implemented
+  directly over the chip has nowhere to await and must do its USB work
+  with the blocking methods, holding the executor for the length of every
+  transfer. As a queue pair plus a task, the USB work is free to await.
+
+  Two consequences for an application. It must dispatch the USB interrupt
+  (`Lic::enable_usb_irq`, and `usb::dwc2::on_irq` from its
+  `__irq_handler`) — the runner's transfers complete on that and nothing
+  else. And it no longer calls `lan9514::wake_rx` on a ticker, because
+  there is nothing left to poll: the receive parks on the bulk endpoint
+  and wakes on the interrupt, so the latency-versus-wake-ups interval an
+  application used to have to choose is gone.
+
+  The runner takes two USB host channels rather than one, one per
+  direction, so a transmit never has to cancel a parked receive.
 
 ### Changed
 

@@ -61,6 +61,23 @@ embassy-time-driver = { version = "0.2.2", features = ["tick-hz-1_000_000"] }
 embassy-time-queue-utils = "0.3.2"
 # API only. The single implementation comes from rpi-hal's `rt` feature.
 critical-section = { version = "1.2.0", default-features = false }
+# The three crates behind the `embassy-net-driver` feature (src/lan9514.rs).
+#
+# `embassy-net-driver` is trait definitions only; `embassy-net-driver-channel`
+# is the packet queues that carry frames between the stack's synchronous
+# `Driver` and this crate's async runner task, and is what makes an async
+# driver expressible at all -- see that module. `embassy-futures` supplies
+# the `join` that runs the runner's two directions side by side.
+#
+# Unlike the time driver above, none of this is installed by linkage: no
+# global symbols, no statics, nothing an application can end up with two
+# of. It lives here rather than in rpi-hal only because the runner it
+# builds is Embassy-shaped -- a task to spawn -- and this is the crate
+# that owns that shape. The frame moving itself stays in rpi-hal, reached
+# through `Lan9514::split`.
+embassy-net-driver = { version = "0.2.0", optional = true }
+embassy-net-driver-channel = { version = "0.4.0", optional = true }
+embassy-futures = { version = "0.1.2", optional = true }
 
 [dev-dependencies]
 # The examples are whole programs, so unlike the library they do need
@@ -72,11 +89,7 @@ critical-section = { version = "1.2.0", default-features = false }
 # canonical source per dependency across all build targets, and rejects
 # the manifest outright ("different source paths depending on the build
 # target") if a normal and a dev edge disagree.
-rpi-hal = { version = "0.2.0", features = [
-    "rt",
-    "async",
-    "embassy-net-driver",
-] }
+rpi-hal = { version = "0.2.0", features = ["rt", "async"] }
 # The application-facing time API (`Instant`, `Duration`, `Timer::after`),
 # used by the examples to exercise the driver in this crate. A library
 # dependency here would be wrong: an application picks its own
@@ -144,14 +157,54 @@ picoserve = { version = "0.19.0", default-features = false, features = [
 # selection above, without which the library does not build at all.
 multicore = ["rpi-hal/multicore"]
 
-# Auto-discovery covers every other example. This one needs an explicit
-# entry so it can declare `required-features`, which keeps a plain
-# `cargo build --examples` from failing on it and lets
+# The `embassy-net` adapter over rpi-hal's LAN9514 USB-Ethernet driver
+# (src/lan9514.rs).
+#
+# Implies `rpi-hal/async`, and not as a convenience: the runner is built
+# on that driver's interrupt-driven transfer methods, so without it there
+# is nothing for the adapter to await. The application still has to
+# dispatch the USB interrupt itself -- see the module's documentation.
+embassy-net-driver = [
+    "dep:embassy-net-driver",
+    "dep:embassy-net-driver-channel",
+    "dep:embassy-futures",
+    "rpi-hal/async",
+]
+
+# Auto-discovery covers every other example. These need explicit entries
+# so they can declare `required-features`, which keeps a plain
+# `cargo build --examples` from failing on them and lets
 # `scripts/build-example.sh` pick the feature up from `cargo metadata`
 # rather than hardcoding a list.
 [[example]]
 name = "embassy_multicore"
 required-features = ["multicore"]
+
+[[example]]
+name = "embassy_net_echo"
+required-features = ["embassy-net-driver"]
+
+[[example]]
+name = "embassy_picoserve"
+required-features = ["embassy-net-driver"]
+
+# Builds against the working copy of `rpi-hal` next door rather than the
+# published release named above.
+#
+# Temporary, and load-bearing until it isn't: the `embassy-net-driver`
+# feature is built on `Lan9514::split` and the LAN9514's `_async` methods,
+# which no published `rpi-hal` has yet. Raise the version requirement above
+# and delete this section together, once the release carrying them is out.
+# `cargo package` is the check that it has actually happened -- `[patch]` is
+# ignored there, so packaging with `--features embassy-net-driver` fails
+# against the real crates.io release until the requirement is right.
+#
+# A `[patch]` rather than a path dependency, so the `[dependencies]` and
+# `[dev-dependencies]` entries stay exactly what an external consumer would
+# write -- a version and nothing else. `[patch]` also applies only to the
+# root manifest of a build, so a crate depending on this one never sees it.
+[patch.crates-io]
+rpi-hal = { path = "../rpi-hal" }
 
 [profile.dev]
 panic = "abort"
