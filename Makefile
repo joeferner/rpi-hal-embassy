@@ -36,14 +36,19 @@ build:
 build-armv6:
 	cargo +nightly build $(ARMV6)
 
-# Twice over, because the feature set changes which examples exist: the
-# default build is what a consumer taking this crate plainly would get, and
-# `--all-features` is the only way the `multicore`-gated example gets
-# compiled at all -- cargo silently skips a target whose
-# `required-features` are unmet rather than reporting it.
+# The feature set changes which examples exist -- cargo silently skips a
+# target whose `required-features` are unmet rather than reporting it --
+# so a plain build is not full coverage. `EXAMPLE_FEATURES` is every
+# feature *except* `irq-dispatch`, which cannot be in a sweep: it defines
+# `__irq_handler`, and every example but one defines its own, so building
+# them together is a duplicate symbol. That example is named on its own
+# line below, which is also the only place the feature is exercised.
+EXAMPLE_FEATURES := multicore,async,embassy-net-driver,wifi
+
 examples:
 	cargo build --release --examples
-	cargo build --release --examples --all-features
+	cargo build --release --examples --features $(EXAMPLE_FEATURES)
+	cargo build --release --features irq-dispatch --example embassy_blink
 
 examples-armv6:
 	cargo +nightly build $(ARMV6) --examples
@@ -56,7 +61,9 @@ fmt-check:
 
 clippy:
 	cargo clippy --release --examples -- -D warnings
-	cargo clippy --release --examples --all-features -- -D warnings
+	cargo clippy --release --examples --features $(EXAMPLE_FEATURES) -- -D warnings
+	# Separate for the same reason as in `examples` above.
+	cargo clippy --release --features irq-dispatch --example embassy_blink -- -D warnings
 
 clippy-armv6:
 	cargo +nightly clippy $(ARMV6) --examples -- -D warnings
