@@ -52,7 +52,7 @@ targets = ["aarch64-unknown-none-softfloat"]
 #
 # `bcm2711` is not among them: this crate's time driver is IRQ-driven via
 # `Lic`, which does not exist under rpi-hal's `bcm2711` feature.
-rpi-hal = { version = "0.6.0", default-features = false }
+rpi-hal = { version = "0.7.0", default-features = false }
 # Deliberately no `platform-*` feature: those select an upstream executor
 # backend, and this crate supplies its own `__pender` and idle loop instead
 # so that AArch32 and AArch64 behave identically. `platform-cortex-ar`
@@ -116,7 +116,7 @@ embassy-time = { version = "0.5.1", default-features = false, optional = true }
 # `embedded-sdmmc` is for one example: the Wi-Fi chip has no firmware of
 # its own, so `embassy_net_wifi` has to read the image off the card before
 # there is a radio to hand to `embassy-net` at all.
-rpi-hal = { version = "0.6.0", features = ["rt", "async", "embedded-sdmmc"] }
+rpi-hal = { version = "0.7.0", features = ["rt", "async", "embedded-sdmmc"] }
 # The application-facing time API (`Instant`, `Duration`, `Timer::after`),
 # used by the examples to exercise the driver in this crate. A library
 # dependency here would be wrong: an application picks its own
@@ -271,21 +271,6 @@ required-features = ["embassy-net-driver"]
 [[example]]
 name = "embassy_net_wifi"
 required-features = ["wifi"]
-
-# Temporary, and the reason it is here is `src/wifi.rs`: that adapter is
-# written against `rpi-hal` changes that are on its main branch and not in
-# any release, so the `version = "0.6.0"` line above cannot resolve to
-# something that compiles. A `[patch]` section applies only to the
-# top-level workspace being built, so this affects builds of this crate and
-# nothing that depends on it -- a consumer wanting the same arrangement
-# writes the same three lines in its own manifest.
-#
-# It comes out when `rpi-hal` next releases, which is also when the version
-# above moves. Until then this repository does not build from a clean
-# checkout on its own, which is the cost of the arrangement and the reason
-# it is not meant to last.
-[patch.crates-io]
-rpi-hal = { path = "../rpi-hal" }
 
 [profile.dev]
 panic = "abort"

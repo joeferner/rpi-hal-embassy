@@ -56,6 +56,16 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   wants `embassy-time` for its ticker and has no use for `rpi-hal/async`,
   and that one is the other way round.
 
+### Changed
+
+- **Requires `rpi-hal` 0.7.0**, which is what makes the Wi-Fi adapter
+  above resolvable. It was written against HAL changes that were on that
+  crate's main branch and in no release — its coalesced-frame handling and
+  `Wifi::bssid`, which the reconnect watch asks — so this repository
+  carried a `[patch.crates-io]` pointing at a working copy and did not
+  build from a clean checkout. 0.7.0 carries them, so the patch comes out
+  and the version moves.
+
 ## [0.6.0] - 2026-09-20
 
 ### Added
