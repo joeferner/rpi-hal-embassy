@@ -322,3 +322,21 @@ panic = "abort"
 
 [profile.release]
 panic = "abort"
+
+# TEMPORARY. Builds against the working copy of `rpi-hal` beside this
+# repo, for the `usb::ethernet` traits this crate now requires and which
+# are not in 0.7.0 on crates.io yet.
+#
+# **This must come out before release, and before this branch merges to a
+# main that is expected to build standalone.** Every crate here is its own
+# repository and has to build from crates.io alone; a path out of the
+# directory only resolves in the development checkout, and a consumer or a
+# CI job cloning this repo by itself gets a manifest that does not
+# resolve.
+#
+# It is here rather than left uncommitted so the branch builds for anyone
+# picking it up mid-flight. It goes away when `rpi-hal` is released with
+# `usb::ethernet`, at which point the version requirement below is
+# bumped to match and this section is deleted.
+[patch.crates-io]
+rpi-hal = { path = "../rpi-hal" }
